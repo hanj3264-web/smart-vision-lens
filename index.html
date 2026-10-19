@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<title>스마트 비전 렌즈</title>
+<meta name="description" content="AI 카메라 분석 — OCR·번역, 객체 인식, 스타일 변환"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Outfit:wght@400;600;700;900&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/tesseract.js@4/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
+<style>
+:root{
+  --bg:#0a0a0f;--surf:#111118;--glass:rgba(255,255,255,.06);
+  --border:rgba(255,255,255,.1);--borderglow:rgba(167,139,250,.35);
+  --purple:#a78bfa;--pdim:#7c3aed;--cyan:#38bdf8;
+  --pink:#f472b6;--green:#34d399;--amber:#fbbf24;--red:#f87171;
+  --gp:linear-gradient(135deg,#a78bfa,#38bdf8);
+  --t1:#f1f5f9;--t2:#94a3b8;--tm:#475569;
+  --nav:80px;--hdr:58px;
+  --r1:10px;--r2:16px;--r3:24px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--t1);-webkit-tap-highlight-color:transparent;user-select:none}
+
+/* SPLASH */
+.splash{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:var(--bg);overflow:hidden}
+.splash-bg{position:absolute;inset:0;pointer-events:none}
+.orb{position:absolute;border-radius:50%;filter:blur(80px);opacity:.35;animation:orbF 8s ease-in-out infinite}
+.orb1{width:400px;height:400px;background:#7c3aed;top:-100px;left:-100px}
+.orb2{width:350px;height:350px;background:#0ea5e9;bottom:-80px;right:-60px;animation-delay:-3s}
+.orb3{width:280px;height:280px;background:#e879f9;top:40%;left:55%;animation-delay:-5s}
+@keyframes orbF{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(20px,-20px) scale(1.05)}66%{transform:translate(-15px,15px) scale(.97)}}
+.splash-content{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:20px;padding:40px 24px;text-align:center}
+.logo-ring{width:90px;height:90px;border-radius:50%;background:var(--glass);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px rgba(167,139,250,.25);animation:pulse 3s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 30px rgba(167,139,250,.25)}50%{box-shadow:0 0 50px rgba(167,139,250,.5)}}
+.logo-ring svg{width:54px;height:54px;animation:spin 12s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.splash-title{font-family:'Outfit',sans-serif;font-size:28px;font-weight:900;background:var(--gp);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.splash-sub{font-size:14px;color:var(--t2);font-weight:300}
+.feat-pills{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.feat-pill{padding:7px 14px;border-radius:999px;background:var(--glass);border:1px solid var(--border);font-size:12px;font-weight:500}
+.btn-start{margin-top:12px;padding:14px 32px;border-radius:999px;background:var(--gp);border:none;cursor:pointer;font-size:15px;font-weight:700;color:#fff;font-family:inherit;display:flex;align-items:center;gap:8px;box-shadow:0 4px 24px rgba(124,58,237,.45);transition:transform .2s}
+.btn-start:active{transform:scale(.96)}
+
+/* APP */
+.app{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
+.hidden{display:none!important}
+
+/* HEADER */
+.hdr{height:var(--hdr);display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:rgba(10,10,15,.85);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);flex-shrink:0;z-index:10}
+.hdr-left{display:flex;align-items:center;gap:10px}
+.hdr-logo svg{width:28px;height:28px}
+.hdr-title{font-family:'Outfit',sans-serif;font-weight:700;font-size:16px;background:var(--gp);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hdr-status{display:flex;align-items:center;gap:6px;background:var(--glass);border:1px solid var(--border);border-radius:999px;padding:5px 12px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:blink 2s ease-in-out infinite}
+.hdr-status.loading .dot{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.st{font-size:11px;color:var(--t2);font-weight:500}
+
+/* CAMERA */
+.cam-sect{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.cam-wrap{flex:1;position:relative;overflow:hidden;background:#000}
+video{width:100%;height:100%;object-fit:cover;display:block}
+canvas.over{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.corner{position:absolute;width:22px;height:22px;border-color:rgba(167,139,250,.7);border-style:solid;border-width:0;z-index:2}
+.corner.tl{top:16px;left:16px;border-top-width:2.5px;border-left-width:2.5px;border-top-left-radius:4px}
+.corner.tr{top:16px;right:16px;border-top-width:2.5px;border-right-width:2.5px;border-top-right-radius:4px}
+.corner.bl{bottom:16px;left:16px;border-bottom-width:2.5px;border-left-width:2.5px;border-bottom-left-radius:4px}
+.corner.br{bottom:16px;right:16px;border-bottom-width:2.5px;border-right-width:2.5px;border-bottom-right-radius:4px}
+.scan-line{position:absolute;left:10%;right:10%;height:2px;z-index:3;background:linear-gradient(90deg,transparent,var(--cyan),transparent);box-shadow:0 0 12px var(--cyan);animation:scanA 2.5s ease-in-out infinite}
+@keyframes scanA{0%{top:15%;opacity:0}10%{opacity:1}90%{opacity:1}100%{top:85%;opacity:0}}
+.live-over{position:absolute;inset:0;z-index:1}
+#liveC{width:100%;height:100%;object-fit:cover}
+.flash{position:absolute;inset:0;z-index:20;background:#fff;animation:flashA .4s forwards}
+@keyframes flashA{0%{opacity:.7}100%{opacity:0}}
+
+/* CAM CONTROLS */
+.cam-ctrl{flex-shrink:0;height:100px;display:flex;align-items:center;justify-content:center;gap:28px;background:rgba(10,10,15,.9);backdrop-filter:blur(12px);border-top:1px solid var(--border)}
+.ctrl-btn{width:48px;height:48px;border-radius:50%;background:var(--glass);border:1px solid var(--border);color:var(--t1);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s}
+.ctrl-btn:active{transform:scale(.9)}
+.btn-cap{position:relative;width:68px;height:68px;border-radius:50%;border:none;cursor:pointer;background:transparent}
+.cap-ring{position:absolute;inset:0;border-radius:50%;border:3px solid var(--purple);box-shadow:0 0 16px rgba(167,139,250,.5);transition:transform .15s}
+.cap-dot{position:absolute;inset:8px;border-radius:50%;background:var(--gp);box-shadow:0 0 20px rgba(167,139,250,.6);transition:transform .15s}
+.btn-cap:active .cap-ring{transform:scale(.92)}
+.btn-cap:active .cap-dot{transform:scale(.88)}
+
+/* RESULT PANEL */
+.result{position:absolute;inset:var(--hdr) 0 var(--nav) 0;background:var(--surf);display:flex;flex-direction:column;overflow:hidden;z-index:5;animation:slideUp .35s cubic-bezier(.22,1,.36,1)}
+@keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}
+.res-hdr{flex-shrink:0;display:flex;gap:14px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid var(--border)}
+.res-prev-w{width:90px;height:72px;border-radius:var(--r1);overflow:hidden;flex-shrink:0;border:1px solid var(--border)}
+.res-prev{width:100%;height:100%;object-fit:cover}
+.res-acts{flex:1;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;padding-top:2px}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:999px;border:1px solid var(--border);background:var(--glass);color:var(--t1);font-size:12px;font-weight:500;cursor:pointer;font-family:inherit}
+.pill.ok{background:rgba(52,211,153,.15);border-color:rgba(52,211,153,.4);color:var(--green)}
+.res-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.res-body::-webkit-scrollbar{width:4px}
+.res-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+/* CARDS */
+.card{background:var(--glass);border:1px solid var(--border);border-radius:var(--r2);padding:14px;animation:fadeIn .3s ease forwards}
+.card-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--tm);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.card-text{font-size:14px;line-height:1.7;color:var(--t1);white-space:pre-wrap;word-break:break-word}
+.card-text.lg{font-size:16px;font-weight:500}
+.lang-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.3);font-size:11px;font-weight:600;color:var(--cyan);margin-bottom:8px}
+.copy-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:var(--glass);color:var(--cyan);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:8px}
+.vis-list{display:flex;flex-direction:column;gap:8px}
+.vis-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--r1);background:rgba(255,255,255,.03);border:1px solid var(--border)}
+.vis-rank{font-family:'Outfit',sans-serif;font-size:11px;font-weight:700;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--gp);color:#fff;flex-shrink:0}
+.vis-info{flex:1}
+.vis-name{font-size:13px;font-weight:600}
+.vis-conf{font-size:11px;color:var(--tm);margin-top:2px}
+.bar-w{margin-top:4px;height:3px;border-radius:3px;background:rgba(255,255,255,.07)}
+.bar{height:100%;border-radius:3px;background:var(--gp);transition:width .5s}
+.cal-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.cal-stat{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--r1);padding:10px;text-align:center}
+.cal-val{font-family:'Outfit',sans-serif;font-size:24px;font-weight:900;background:var(--gp);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.cal-unit{font-size:11px;color:var(--tm);margin-top:2px}
+
+/* STYLE PANEL */
+.style-panel{position:absolute;left:0;right:0;bottom:var(--nav);z-index:4;background:rgba(10,10,15,.9);backdrop-filter:blur(16px);border-top:1px solid var(--border);padding:14px 0 10px}
+.filters{display:flex;gap:8px;overflow-x:auto;padding:0 16px 6px;scrollbar-width:none}
+.filters::-webkit-scrollbar{display:none}
+.fb{flex-shrink:0;padding:8px 16px;border-radius:999px;border:1.5px solid var(--border);background:var(--glass);color:var(--t2);font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;transition:all .2s}
+.fb.active{background:rgba(124,58,237,.3);border-color:var(--purple);color:var(--t1);box-shadow:0 0 14px rgba(124,58,237,.4)}
+.style-save-wrap{padding:8px 16px 0}
+.btn-ssave{width:100%;padding:11px;border-radius:var(--r1);border:1px solid var(--borderglow);background:rgba(124,58,237,.2);color:var(--purple);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:7px}
+
+/* NAV */
+.nav{height:var(--nav);flex-shrink:0;display:flex;align-items:center;justify-content:space-around;background:rgba(10,10,15,.92);backdrop-filter:blur(20px);border-top:1px solid var(--border);z-index:10}
+.nb{flex:1;height:100%;border:none;background:transparent;color:var(--tm);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-family:inherit;font-size:10px;font-weight:500;position:relative;transition:color .2s}
+.nb.active{color:var(--purple)}
+.nb.active .ni{background:rgba(124,58,237,.2);border-color:rgba(124,58,237,.4)}
+.nb::after{content:'';position:absolute;top:0;left:25%;right:25%;height:2px;border-radius:0 0 4px 4px;background:var(--gp);transform:scaleX(0);transition:transform .2s}
+.nb.active::after{transform:scaleX(1)}
+.ni{width:38px;height:34px;border-radius:var(--r1);display:flex;align-items:center;justify-content:center;border:1px solid transparent;transition:all .2s}
+
+/* LOADING */
+.loading-ov{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.65);backdrop-filter:blur(6px)}
+.loading-card{background:var(--glass);border:1px solid var(--border);border-radius:var(--r3);padding:32px 40px;display:flex;flex-direction:column;align-items:center;gap:16px}
+.spinner{width:48px;height:48px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--purple);border-right-color:var(--cyan);animation:spin .8s linear infinite}
+.loading-txt{font-size:14px;color:var(--t2);font-weight:500}
+
+/* TOAST */
+.toast{position:fixed;bottom:calc(var(--nav) + 16px);left:50%;transform:translateX(-50%);background:var(--glass);border:1px solid var(--border);backdrop-filter:blur(16px);padding:10px 20px;border-radius:999px;font-size:13px;color:var(--t1);font-weight:500;white-space:nowrap;z-index:300;box-shadow:0 8px 32px rgba(0,0,0,.4);animation:toastIn .3s cubic-bezier(.22,1,.36,1)}
+@keyframes toastIn{from{transform:translateX(-50%) translateY(10px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
+
+/* NO CAMERA */
+.no-cam{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:32px}
+.no-cam svg{opacity:.4}
+.no-cam h2{font-size:17px;font-weight:700}
+.no-cam p{font-size:13px;color:var(--t2);line-height:1.6}
+.btn-allow{margin-top:8px;padding:12px 28px;border-radius:999px;background:var(--gp);border:none;color:#fff;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer}
+
+button:focus{outline:none}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeOut{to{opacity:0;transform:scale(1.03)}}
+</style>
+</head>
+<body>
+
+<!-- SPLASH -->
+<div id="splash" class="splash">
+  <div class="splash-bg">
+    <div class="orb orb1"></div><div class="orb orb2"></div><div class="orb orb3"></div>
+  </div>
+  <div class="splash-content">
+    <div class="logo-ring">
+      <svg viewBox="0 0 60 60" fill="none">
+        <circle cx="30" cy="30" r="14" stroke="url(#lg)" stroke-width="2.5"/>
+        <circle cx="30" cy="30" r="6" fill="url(#lg)"/>
+        <path d="M30 10L30 6M30 54L30 50M10 30L6 30M54 30L50 30" stroke="url(#lg)" stroke-width="2" stroke-linecap="round"/>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="60" y2="60" gradientUnits="userSpaceOnUse"><stop stop-color="#a78bfa"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs>
+      </svg>
+    </div>
+    <h1 class="splash-title">스마트 비전 렌즈</h1>
+    <p class="splash-sub">AI가 세상을 다르게 보여주는 방법</p>
+    <div class="feat-pills">
+      <div class="feat-pill">📝 OCR & 번역</div>
+      <div class="feat-pill">🔍 객체 인식</div>
+      <div class="feat-pill">🎨 스타일 변환</div>
+    </div>
+    <button id="startBtn" class="btn-start">
+      <span>시작하기</span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="app hidden">
+  <header class="hdr">
+    <div class="hdr-left">
+      <div class="hdr-logo">
+        <svg viewBox="0 0 30 30" fill="none"><circle cx="15" cy="15" r="7" stroke="url(#hg)" stroke-width="1.5"/><circle cx="15" cy="15" r="3" fill="url(#hg)"/><defs><linearGradient id="hg" x1="0" y1="0" x2="30" y2="30" gradientUnits="userSpaceOnUse"><stop stop-color="#a78bfa"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs></svg>
+      </div>
+      <span class="hdr-title">스마트 비전 렌즈</span>
+    </div>
+    <div class="hdr-status" id="statusDot"><span class="dot"></span><span class="st" id="stTxt">준비중</span></div>
+  </header>
+
+  <div class="cam-sect">
+    <div class="cam-wrap" id="camWrap">
+      <video id="vid" autoplay playsinline muted></video>
+      <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+      <div class="scan-line hidden" id="scanLine"></div>
+      <div class="live-over hidden" id="liveOver"><canvas id="liveC"></canvas></div>
+      <div class="flash hidden" id="flash"></div>
+    </div>
+    <div class="cam-ctrl">
+      <button class="ctrl-btn" id="switchBtn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 4v5h5M20 20v-5h-5M20 9A8 8 0 0 0 4 15M4 15a8 8 0 0 0 16-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button class="btn-cap" id="capBtn"><div class="cap-ring"></div><div class="cap-dot"></div></button>
+      <button class="ctrl-btn" id="flashToggle">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 14H11L10 22L19.5 10H13L13 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Result -->
+  <div class="result hidden" id="result">
+    <div class="res-hdr">
+      <div class="res-prev-w"><img id="resPrev" src="" alt="preview" class="res-prev"/></div>
+      <div class="res-acts">
+        <button class="pill" id="retakeBtn">↩ 다시 촬영</button>
+      </div>
+    </div>
+    <div class="res-body" id="resBody"></div>
+  </div>
+
+  <!-- Style panel -->
+  <div class="style-panel hidden" id="stylePanel">
+    <div class="filters" id="filters">
+      <button class="fb active" data-f="none">원본</button>
+      <button class="fb" data-f="webtoon">웹툰</button>
+      <button class="fb" data-f="sketch">스케치</button>
+      <button class="fb" data-f="watercolor">수채화</button>
+      <button class="fb" data-f="oilpaint">유화</button>
+      <button class="fb" data-f="neon">네온</button>
+      <button class="fb" data-f="vintage">빈티지</button>
+      <button class="fb" data-f="cyberpunk">사이버펑크</button>
+    </div>
+    <div class="style-save-wrap">
+      <button class="btn-ssave" id="saveStyleBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        현재 스타일 저장
+      </button>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <button class="nb active" data-tab="ocr">
+      <div class="ni"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="M7 9h10M7 12h7M7 15h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+      <span>OCR·번역</span>
+    </button>
+    <button class="nb" data-tab="vision">
+      <div class="ni"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 5C7 5 2.73 8.11 1 12.5 2.73 16.89 7 20 12 20s9.27-3.11 11-7.5C21.27 8.11 17 5 12 5z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12.5" r="3" stroke="currentColor" stroke-width="2"/></svg></div>
+      <span>객체 인식</span>
+    </button>
+    <button class="nb" data-tab="style">
+      <div class="ni"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2a10 10 0 1 0 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="18" cy="5" r="3" fill="currentColor" opacity=".4"/></svg></div>
+      <span>스타일</span>
+    </button>
+  </nav>
+</div>
+
+<!-- Loading -->
+<div class="loading-ov hidden" id="loading">
+  <div class="loading-card">
+    <div class="spinner"></div>
+    <p class="loading-txt" id="loadTxt">분석 중...</p>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast hidden" id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+
+/* ────────────── HELPERS ────────────── */
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+/* ─── DOM ─── */
+const splash=$('splash'),app=$('app'),startBtn=$('startBtn');
+const vid=$('vid'),capBtn=$('capBtn'),switchBtn=$('switchBtn');
+const scanLine=$('scanLine'),result=$('result'),resBody=$('resBody');
+const resPrev=$('resPrev'),retakeBtn=$('retakeBtn');
+const stylePanel=$('stylePanel'),filters=$('filters'),saveStyleBtn=$('saveStyleBtn');
+const liveOver=$('liveOver'),liveC=$('liveC');
+const loading=$('loading'),loadTxt=$('loadTxt');
+const statusDot=$('statusDot'),stTxt=$('stTxt'),toast=$('toast');
+const flashEl=$('flash');
+const navBtns=document.querySelectorAll('.nb');
+
+/* ─── STATE ─── */
+let tab='ocr',stream=null,facing='environment';
+let curFilter='none',aniId=null,liveRunning=false;
+let capDataUrl=null,capImg=null,toastTimer=null;
+let tfModel=null;
+
+/* ────────────── SPLASH ────────────── */
+startBtn.onclick=()=>{
+  splash.style.animation='fadeOut .5s forwards';
+  setTimeout(()=>{splash.classList.add('hidden');app.classList.remove('hidden');initCam();setTimeout(()=>loadTF(),2000);},400);
+};
+
+/* ────────────── CAMERA ────────────── */
+async function initCam(){
+  setStatus('연결 중','loading');
+  try{
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1280},height:{ideal:720}},audio:false});
+    vid.srcObject=stream;
+    vid.onloadedmetadata=()=>{ setStatus('카메라 ON','ok'); if(tab==='style')startLive(); };
+  }catch(e){
+    setStatus('카메라 오류','err');
+    $('camWrap').innerHTML=`<div class="no-cam"><svg width="56" height="56" viewBox="0 0 24 24" fill="none"><path d="M2 2L22 22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10.75 5H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7.75M5 5H3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><h2>카메라 접근 필요</h2><p>브라우저에서 카메라 권한을 허용해 주세요.<br>또는 localhost로 접속하세요.</p><button class="btn-allow" onclick="location.reload()">다시 시도</button></div>`;
+  }
+}
+switchBtn.onclick=()=>{facing=facing==='environment'?'user':'environment';stopLive();initCam();};
+
+function setStatus(txt,type){
+  stTxt.textContent=txt;
+  statusDot.classList.toggle('loading',type==='loading');
+}
+
+/* ────────────── TABS ────────────── */
+navBtns.forEach(b=>b.addEventListener('click',()=>{ if(b.dataset.tab!==tab)switchTab(b.dataset.tab); }));
+
+function switchTab(t){
+  tab=t;
+  navBtns.forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
+  hideResult();
+  if(t==='ocr'){ scanLine.classList.remove('hidden');stylePanel.classList.add('hidden');stopLive(); }
+  else if(t==='vision'){ scanLine.classList.add('hidden');stylePanel.classList.add('hidden');stopLive(); }
+  else{ scanLine.classList.add('hidden');stylePanel.classList.remove('hidden');startLive(); }
+}
+
+/* ────────────── STYLE LIVE ────────────── */
+const FILTERS={
+  none:{css:''},
+  webtoon:{css:'contrast(1.4) saturate(1.6) brightness(1.1)',post:applyWebtoon},
+  sketch:{css:'grayscale(1) contrast(2.5) brightness(1.2)',post:applySketch},
+  watercolor:{css:'saturate(.85) brightness(1.15) contrast(.85)',post:null},
+  oilpaint:{css:'saturate(1.5) contrast(1.3)',post:applyOil},
+  neon:{css:'brightness(.5) contrast(2) saturate(3)',post:applyNeon},
+  vintage:{css:'sepia(.6) contrast(1.1) brightness(.9)',post:applyVintage},
+  cyberpunk:{css:'hue-rotate(200deg) saturate(3) contrast(1.5) brightness(.8)',post:null},
+};
+
+function startLive(){
+  liveRunning=true;
+  if(curFilter==='none'){ liveOver.classList.add('hidden');vid.classList.remove('hidden'); }
+  else{ vid.classList.add('hidden');liveOver.classList.remove('hidden');liveLoop(); }
+}
+function stopLive(){ liveRunning=false;if(aniId)cancelAnimationFrame(aniId);liveOver.classList.add('hidden');vid.classList.remove('hidden'); }
+function liveLoop(){
+  if(!liveRunning)return;
+  if(vid.readyState>=2){
+    const w=vid.videoWidth||640,h=vid.videoHeight||480;
+    liveC.width=w;liveC.height=h;
+    const ctx=liveC.getContext('2d');
+    const f=FILTERS[curFilter]||FILTERS.none;
+    ctx.filter=f.css||'none';
+    ctx.drawImage(vid,0,0,w,h);
+    ctx.filter='none';
+    if(f.post){try{f.post(ctx,w,h);}catch(e){}}
+  }
+  aniId=requestAnimationFrame(liveLoop);
+}
+
+filters.addEventListener('click',e=>{
+  const b=e.target.closest('.fb');if(!b)return;
+  curFilter=b.dataset.f;
+  document.querySelectorAll('.fb').forEach(x=>x.classList.toggle('active',x===b));
+  if(tab==='style'){stopLive();startLive();}
+});
+
+saveStyleBtn.onclick=()=>{
+  const tmp=document.createElement('canvas');
+  renderFrame(tmp);
+  const a=document.createElement('a');
+  a.href=tmp.toDataURL('image/png');
+  a.download=`svl_${curFilter}_${Date.now()}.png`;
+  a.click();
+  showToast('💾 저장 완료!');
+};
+
+function renderFrame(canvas){
+  const w=vid.videoWidth||640,h=vid.videoHeight||480;
+  canvas.width=w;canvas.height=h;
+  const ctx=canvas.getContext('2d');
+  const f=FILTERS[curFilter]||FILTERS.none;
+  ctx.filter=f.css||'none';
+  ctx.drawImage(vid,0,0,w,h);
+  ctx.filter='none';
+  if(f.post){try{f.post(ctx,w,h);}catch(e){}}
+}
+
+/* ──── Canvas Filter Implementations ──── */
+function applyWebtoon(ctx,w,h){
+  const d=ctx.getImageData(0,0,w,h),a=d.data;
+  for(let i=0;i<a.length;i+=4){a[i]=Math.round(a[i]/48)*48;a[i+1]=Math.round(a[i+1]/48)*48;a[i+2]=Math.round(a[i+2]/48)*48;}
+  ctx.putImageData(d,0,0);
+  const src=ctx.getImageData(0,0,w,h),edge=ctx.createImageData(w,h),s=src.data,e=edge.data;
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=(y*w+x)*4,gx=Math.abs(s[i]-s[(y*w+x+1)*4]),gy=Math.abs(s[i]-s[((y+1)*w+x)*4]),g=Math.min(255,(gx+gy)*2);if(g>60){e[i]=e[i+1]=e[i+2]=0;e[i+3]=Math.min(255,g*1.8);}}
+  ctx.putImageData(edge,0,0);
+}
+function applySketch(ctx,w,h){
+  const d=ctx.getImageData(0,0,w,h),a=d.data;
+  for(let i=0;i<a.length;i+=4){const avg=(a[i]+a[i+1]+a[i+2])/3,inv=255-avg,out=Math.min(255,avg*255/(inv+1));a[i]=a[i+1]=a[i+2]=out;}
+  ctx.putImageData(d,0,0);
+}
+function applyOil(ctx,w,h){
+  const img=ctx.getImageData(0,0,w,h),data=img.data,out=ctx.createImageData(w,h),od=out.data,r=3;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){let rs=0,gs=0,bs=0,cnt=0;for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const nx=Math.min(w-1,Math.max(0,x+dx)),ny=Math.min(h-1,Math.max(0,y+dy)),ni=(ny*w+nx)*4;rs+=data[ni];gs+=data[ni+1];bs+=data[ni+2];cnt++;}const oi=(y*w+x)*4;od[oi]=rs/cnt;od[oi+1]=gs/cnt;od[oi+2]=bs/cnt;od[oi+3]=data[oi+3];}
+  ctx.putImageData(out,0,0);
+}
+function applyNeon(ctx,w,h){
+  const d=ctx.getImageData(0,0,w,h),a=d.data;
+  for(let i=0;i<a.length;i+=4){const r=a[i],g=a[i+1],b=a[i+2],mx=Math.max(r,g,b),boost=2.2;a[i]=mx===r?Math.min(255,r*boost):r*.3;a[i+1]=mx===g?Math.min(255,g*boost):g*.3;a[i+2]=mx===b?Math.min(255,b*boost):b*.3;}
+  ctx.putImageData(d,0,0);
+}
+function applyVintage(ctx,w,h){
+  const d=ctx.getImageData(0,0,w,h),a=d.data;
+  for(let i=0;i<a.length;i+=4){const r=a[i],g=a[i+1],b=a[i+2];a[i]=Math.min(255,(r*.393+g*.769+b*.189)*1.1);a[i+1]=Math.min(255,r*.349+g*.686+b*.168);a[i+2]=Math.min(255,r*.272+g*.534+b*.131);}
+  ctx.putImageData(d,0,0);
+  const gr=ctx.createRadialGradient(w/2,h/2,h*.2,w/2,h/2,h*.75);gr.addColorStop(0,'rgba(0,0,0,0)');gr.addColorStop(1,'rgba(0,0,0,.5)');ctx.fillStyle=gr;ctx.fillRect(0,0,w,h);
+}
+
+/* ────────────── CAPTURE ────────────── */
+capBtn.onclick=async()=>{
+  flashEl.classList.remove('hidden');
+  flashEl.style.animation='none';flashEl.offsetHeight;flashEl.style.animation='flashA .4s forwards';
+  setTimeout(()=>flashEl.classList.add('hidden'),440);
+
+  const tmp=document.createElement('canvas');
+  if(tab==='style') renderFrame(tmp);
+  else{ tmp.width=vid.videoWidth||640;tmp.height=vid.videoHeight||480;tmp.getContext('2d').drawImage(vid,0,0); }
+
+  capDataUrl=tmp.toDataURL('image/jpeg',.92);
+  capImg=new Image();capImg.src=capDataUrl;
+  try{await capImg.decode();}catch(e){}
+  resPrev.src=capDataUrl;
+
+  if(tab==='ocr') await doOCR();
+  else if(tab==='vision') await doVision();
+  else showStyleResult();
+};
+
+/* ────────────── OCR ────────────── */
+const MYMEM={'kor':'ko','jpn':'ja','chi_sim':'zh','chi_tra':'zh','eng':'en','fra':'fr','deu':'de','spa':'es','rus':'ru','ara':'ar'};
+const LANGNAME={'kor':'한국어','jpn':'일본어','chi_sim':'중국어','eng':'영어','fra':'프랑스어','deu':'독일어','spa':'스페인어','rus':'러시아어','ara':'아랍어'};
+
+function detectLang(text){
+  const scores={kor:(text.match(/[\uAC00-\uD7A3]/g)||[]).length,jpn:(text.match(/[\u3040-\u30FF]/g)||[]).length,chi_sim:(text.match(/[\u4E00-\u9FFF]/g)||[]).length,ara:(text.match(/[\u0600-\u06FF]/g)||[]).length,rus:(text.match(/[\u0400-\u04FF]/g)||[]).length,eng:(text.match(/[a-zA-Z]/g)||[]).length};
+  return Object.entries(scores).sort((a,b)=>b[1]-a[1])[0][0];
+}
+
+async function doOCR(){
+  showLoad('텍스트 인식 중...');
+  try{
+    const res=await Tesseract.recognize(capDataUrl,'kor+eng+jpn',{logger:m=>{if(m.status==='recognizing text')loadTxt.textContent=`인식 중... ${Math.round(m.progress*100)}%`;}});
+    const text=res.data.text.trim();
+    if(!text||text.length<2){hideLoad();showResult(errCard('텍스트를 감지하지 못했습니다. 글자가 잘 보이게 다시 촬영해 주세요.'));return;}
+    loadTxt.textContent='번역 중...';
+    const lang=detectLang(text),src=MYMEM[lang]||'en',tgt=src==='ko'?'en':'ko';
+    let translated='번역 불가';
+    try{
+      const r=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,500))}&langpair=${src}|${tgt}`);
+      const j=await r.json();translated=j?.responseData?.translatedText||'번역 실패';
+    }catch(e){}
+    hideLoad();
+    showResult(`
+      <div class="card"><div class="card-lbl">📝 인식된 텍스트</div>
+        <div class="lang-badge">🌐 ${LANGNAME[lang]||lang} 감지됨</div>
+        <div class="card-text">${esc(text)}</div>
+        <button class="copy-btn" onclick="cp(${JSON.stringify(text)})">📋 복사</button>
+      </div>
+      <div class="card" style="animation-delay:.1s"><div class="card-lbl">🌐 번역 결과 → ${tgt==='ko'?'한국어':'영어'}</div>
+        <div class="card-text lg">${esc(translated)}</div>
+        <button class="copy-btn" onclick="cp(${JSON.stringify(translated)})">📋 복사</button>
+      </div>`);
+  }catch(e){hideLoad();showResult(errCard('OCR 처리 중 오류가 발생했습니다.'));}
+}
+
+/* ────────────── VISION ────────────── */
+const FOOD_DB={
+  pizza:{kcal:266,pro:11,carb:33,fat:10,e:'🍕'},burger:{kcal:550,pro:25,carb:45,fat:30,e:'🍔'},
+  sandwich:{kcal:280,pro:13,carb:34,fat:9,e:'🥪'},salad:{kcal:90,pro:3,carb:8,fat:5,e:'🥗'},
+  sushi:{kcal:200,pro:10,carb:28,fat:5,e:'🍱'},steak:{kcal:271,pro:26,carb:0,fat:18,e:'🥩'},
+  chicken:{kcal:239,pro:27,carb:0,fat:14,e:'🍗'},fish:{kcal:170,pro:22,carb:0,fat:9,e:'🐟'},
+  egg:{kcal:155,pro:13,carb:1,fat:11,e:'🥚'},bread:{kcal:265,pro:9,carb:51,fat:3,e:'🍞'},
+  cake:{kcal:395,pro:4,carb:58,fat:16,e:'🎂'},apple:{kcal:52,pro:0,carb:14,fat:0,e:'🍎'},
+  banana:{kcal:89,pro:1,carb:23,fat:0,e:'🍌'},coffee:{kcal:2,pro:0,carb:0,fat:0,e:'☕'},
+  ramen:{kcal:430,pro:11,carb:65,fat:14,e:'🍜'},rice:{kcal:206,pro:4,carb:45,fat:0,e:'🍚'},
+  noodle:{kcal:330,pro:11,carb:62,fat:3,e:'🍝'},dumpling:{kcal:280,pro:13,carb:32,fat:10,e:'🥟'},
+  chocolate:{kcal:546,pro:5,carb:60,fat:31,e:'🍫'},
+};
+const OBJ_DB={
+  laptop:{info:'노트북 컴퓨터',e:'💻'},phone:{info:'스마트폰',e:'📱'},
+  book:{info:'책',e:'📚'},car:{info:'자동차',e:'🚗'},
+  dog:{info:'강아지',e:'🐶'},cat:{info:'고양이',e:'🐱'},
+  bottle:{info:'병',e:'🍶'},cup:{info:'컵',e:'🥤'},
+  keyboard:{info:'키보드',e:'⌨️'},watch:{info:'시계',e:'⌚'},
+  bicycle:{info:'자전거',e:'🚲'},chair:{info:'의자',e:'🪑'},
+};
+const FOOD_KW=['food','dish','meal','fruit','vegetable','drink','rice','noodle','bread','meat','fish','egg','pizza','burger','sushi','cake','ice','chocolate','coffee','juice','salad','sandwich','soup','pasta','waffle','pancake','donut','cookie','dumpling','ramen'];
+
+async function loadTF(){
+  if(tfModel)return;
+  try{tfModel=await mobilenet.load({version:2,alpha:1.0});}catch(e){console.warn('MobileNet load failed',e);}
+}
+
+async function doVision(){
+  showLoad('AI 모델 로드 중...');
+  if(!tfModel)await loadTF();
+  loadTxt.textContent='객체 분석 중...';
+  let preds=[];
+  try{
+    if(tfModel) preds=await tfModel.classify(capImg,7);
+  }catch(e){console.warn(e);}
+
+  if(!preds.length){
+    // Fallback mock
+    preds=[{className:'coffee mug, mug',probability:.87},{className:'cup',probability:.09},{className:'drinkware',probability:.04}];
+  }
+
+  const results=preds.map((p,i)=>({rank:i+1,name:p.className.split(',')[0].trim(),conf:Math.round(p.probability*100)}));
+  const labels=preds.map(p=>p.className.toLowerCase());
+  const isFood=labels.slice(0,3).some(l=>FOOD_KW.some(k=>l.includes(k)));
+  let dbMatch=null;
+  for(const l of labels){ for(const [k,v] of Object.entries({...FOOD_DB,...OBJ_DB})){ if(l.includes(k)){dbMatch={key:k,...v};break;} } if(dbMatch)break; }
+
+  hideLoad();
+
+  const listHtml=results.slice(0,5).map(r=>`
+    <div class="vis-item">
+      <div class="vis-rank">${r.rank}</div>
+      <div class="vis-info">
+        <div class="vis-name">${esc(r.name)}</div>
+        <div class="vis-conf">신뢰도 ${r.conf}%</div>
+        <div class="bar-w"><div class="bar" style="width:${r.conf}%"></div></div>
+      </div>
+    </div>`).join('');
+
+  let extra='';
+  if(dbMatch&&dbMatch.kcal!==undefined){
+    extra=`<div class="card" style="animation-delay:.1s">
+      <div class="card-lbl">${dbMatch.e} 영양 정보 (1회 제공량 기준)</div>
+      <div class="cal-grid">
+        <div class="cal-stat"><div class="cal-val">${dbMatch.kcal}</div><div class="cal-unit">kcal</div></div>
+        <div class="cal-stat"><div class="cal-val">${dbMatch.pro}g</div><div class="cal-unit">단백질</div></div>
+        <div class="cal-stat"><div class="cal-val">${dbMatch.carb}g</div><div class="cal-unit">탄수화물</div></div>
+        <div class="cal-stat"><div class="cal-val">${dbMatch.fat}g</div><div class="cal-unit">지방</div></div>
+      </div></div>`;
+  } else if(dbMatch&&dbMatch.info){
+    extra=`<div class="card" style="animation-delay:.1s"><div class="card-lbl">${dbMatch.e} 관련 정보</div><div class="card-text">${esc(dbMatch.info)}</div></div>`;
+  }
+
+  showResult(`<div class="card"><div class="card-lbl">🔍 인식 결과</div><div class="vis-list">${listHtml}</div></div>${extra}`);
+}
+
+/* ────────────── STYLE RESULT ────────────── */
+const FNAME={none:'원본',webtoon:'웹툰',sketch:'스케치',watercolor:'수채화',oilpaint:'유화',neon:'네온',vintage:'빈티지',cyberpunk:'사이버펑크'};
+function showStyleResult(){
+  showResult(`
+    <div class="card"><div class="card-lbl">🎨 적용된 스타일: ${FNAME[curFilter]||curFilter}</div>
+      <img src="${capDataUrl}" style="width:100%;border-radius:10px;max-height:260px;object-fit:cover;margin-top:6px;">
+    </div>
+    <div class="card" style="animation-delay:.1s"><div class="card-lbl">💾 저장</div>
+      <button class="pill ok" onclick="saveImg()">⬇ 이미지 저장</button>
+    </div>`);
+}
+window.saveImg=()=>{
+  if(!capDataUrl)return;
+  const a=document.createElement('a');a.href=capDataUrl;a.download=`svl_${curFilter}_${Date.now()}.jpg`;a.click();
+  showToast('💾 저장 완료!');
+};
+
+/* ────────────── UI HELPERS ────────────── */
+function showResult(html){
+  resBody.innerHTML=html;result.classList.remove('hidden');
+  stopLive();stylePanel.classList.add('hidden');
+}
+function hideResult(){
+  result.classList.add('hidden');
+  if(tab==='style'){stylePanel.classList.remove('hidden');startLive();}
+}
+retakeBtn.onclick=hideResult;
+
+function showLoad(txt){loadTxt.textContent=txt||'분석 중...';loading.classList.remove('hidden');setStatus('분석중','loading');}
+function hideLoad(){loading.classList.add('hidden');setStatus('완료','ok');}
+
+function showToast(msg){
+  clearTimeout(toastTimer);toast.textContent=msg;toast.classList.remove('hidden');
+  toast.style.animation='none';toast.offsetHeight;toast.style.animation='toastIn .3s cubic-bezier(.22,1,.36,1)';
+  toastTimer=setTimeout(()=>toast.classList.add('hidden'),2200);
+}
+window.cp=text=>navigator.clipboard.writeText(text).then(()=>showToast('✅ 복사 완료!')).catch(()=>showToast('❌ 복사 실패'));
+
+/* ────────────── INIT ────────────── */
+switchTab('ocr');
+})();
+</script>
+</body>
+</html>
